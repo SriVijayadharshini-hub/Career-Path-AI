@@ -370,4 +370,5 @@ def full_career_guidance():
     })
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    print("Career AI Backend Running")
+    app.run(debug=True, port=5000)
