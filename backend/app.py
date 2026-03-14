@@ -1,21 +1,39 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
 import sqlite3
 import joblib
 import numpy as np
+import io
+
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet
+
+
+# -------------------------
+# APP SETUP
+# -------------------------
 
 app = Flask(__name__)
-CORS(app)
+
+CORS(app, resources={r"/*": {"origins": "*"}})
 
 model = joblib.load("career_model.pkl")
 encoder = joblib.load("label_encoder.pkl")
 
-# HOME ROUTE
+
+# -------------------------
+# HOME
+# -------------------------
+
 @app.route("/")
 def home():
     return "Career AI Backend Running"
 
-# REGISTER API
+
+# -------------------------
+# REGISTER
+# -------------------------
+
 @app.route("/register", methods=["POST"])
 def register():
 
@@ -38,7 +56,11 @@ def register():
 
     return jsonify({"message": "User Registered Successfully"})
 
-# LOGIN API
+
+# -------------------------
+# LOGIN
+# -------------------------
+
 @app.route("/login", methods=["POST"])
 def login():
 
@@ -64,7 +86,10 @@ def login():
         return jsonify({"message": "Invalid Login"})
 
 
-#ASSESSMENT API
+# -------------------------
+# ASSESSMENT
+# -------------------------
+
 @app.route("/assessment", methods=["POST"])
 def assessment():
 
@@ -97,7 +122,10 @@ def assessment():
     })
 
 
-#PREDICTION API
+# -------------------------
+# PREDICT CAREER
+# -------------------------
+
 @app.route("/predict_career", methods=["POST"])
 def predict_career():
 
@@ -110,20 +138,18 @@ def predict_career():
     E = data["E"]
     C = data["C"]
 
-    interest = data["interest"]   # student's preferred career
+    interest = data["interest"]
 
     input_data = np.array([[R,I,A,S,E,C]])
 
     probs = model.predict_proba(input_data)[0]
-
     careers = encoder.classes_
 
     result = {}
 
     for i in range(len(careers)):
-        result[str(careers[i])] = float(round(float(probs[i]) * 100, 2))
+        result[str(careers[i])] = float(round(probs[i] * 100,2))
 
-    # FINAL INTELLIGENT LOGIC
     best_model_career = str(careers[np.argmax(probs)])
 
     if interest == best_model_career:
@@ -138,17 +164,22 @@ def predict_career():
     })
 
 
-#Skill gap route
+# -------------------------
+# SKILL GAP
+# -------------------------
+
 @app.route("/skill_gap", methods=["POST"])
 def skill_gap():
 
     data = request.json
 
     career = data["career"]
-
     python = data["python"]
     maths = data["maths"]
     communication = data["communication"]
+
+    gap = 0
+    level = "General"
 
     if career == "Engineering":
 
@@ -172,16 +203,16 @@ def skill_gap():
         else:
             level = "Advanced"
 
-    else:
-        level = "General Path"
-
     return jsonify({
         "gap_score": gap,
         "recommended_level": level
     })
 
 
-#RECOMMENDATION COURSE API
+# -------------------------
+# COURSE RECOMMENDATION
+# -------------------------
+
 @app.route("/recommend_courses", methods=["POST"])
 def recommend_courses():
 
@@ -217,26 +248,11 @@ def recommend_courses():
 
     elif career == "Lawyer":
 
-        if level == "Beginner":
-            courses = [
-                "Introduction to Law – Coursera",
-                "Legal Writing – edX",
-                "Public Speaking – Udemy"
-            ]
-
-        elif level == "Intermediate":
-            courses = [
-                "Corporate Law – Coursera",
-                "Legal Research – edX",
-                "Negotiation Skills – Udemy"
-            ]
-
-        else:
-            courses = [
-                "International Law – Coursera",
-                "Advanced Litigation – edX",
-                "Legal Strategy – Harvard Online"
-            ]
+        courses = [
+            "Introduction to Law – Coursera",
+            "Legal Writing – edX",
+            "Public Speaking – Udemy"
+        ]
 
     else:
         courses = ["General Career Development – Coursera"]
@@ -246,7 +262,10 @@ def recommend_courses():
     })
 
 
-#FUTURE SIMULATION API
+# -------------------------
+# SALARY SIMULATION
+# -------------------------
+
 @app.route("/career_simulation", methods=["POST"])
 def career_simulation():
 
@@ -258,116 +277,256 @@ def career_simulation():
     if career == "Engineering":
 
         if level == "Beginner":
-            salary_path = [300000, 500000, 800000, 1200000]
-
+            salary = [300000,500000,800000,1200000]
         elif level == "Intermediate":
-            salary_path = [500000, 800000, 1400000, 2000000]
-
+            salary = [500000,800000,1400000,2000000]
         else:
-            salary_path = [800000, 1500000, 2500000, 4000000]
-
-    elif career == "Lawyer":
-
-        if level == "Beginner":
-            salary_path = [250000, 400000, 700000, 1000000]
-
-        elif level == "Intermediate":
-            salary_path = [400000, 700000, 1200000, 1800000]
-
-        else:
-            salary_path = [700000, 1400000, 2500000, 3500000]
+            salary = [800000,1500000,2500000,4000000]
 
     else:
-        salary_path = [200000, 300000, 500000, 800000]
+        salary = [200000,300000,500000,800000]
 
-    stages = ["Entry Level", "Junior", "Mid Level", "Senior"]
+    stages = ["Entry","Junior","Mid","Senior"]
 
     return jsonify({
         "career": career,
         "growth_stages": stages,
-        "salary_projection": salary_path
+        "salary_projection": salary
     })
 
-#PREDICTION EXPLANATION API
+
+# -------------------------
+# EXPLAIN AI
+# -------------------------
+
 @app.route("/explain_prediction", methods=["POST"])
 def explain_prediction():
 
     data = request.json
 
-    R = data["R"]
-    I = data["I"]
-    A = data["A"]
-    S = data["S"]
-    E = data["E"]
-    C = data["C"]
-
     scores = {
-        "Realistic": R,
-        "Investigative": I,
-        "Artistic": A,
-        "Social": S,
-        "Enterprising": E,
-        "Conventional": C
+        "Realistic": data["R"],
+        "Investigative": data["I"],
+        "Artistic": data["A"],
+        "Social": data["S"],
+        "Enterprising": data["E"],
+        "Conventional": data["C"]
     }
 
-    sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-
-    top_factor = sorted_scores[0][0]
+    top = max(scores, key=scores.get)
 
     return jsonify({
-        "top_influencing_factor": top_factor,
+        "top_influencing_factor": top,
         "full_score_analysis": scores
     })
 
 
-#FUTURE CAREER GUIDANCE API
-@app.route("/full_career_guidance", methods=["POST"])
-def full_career_guidance():
+# -------------------------
+# PDF REPORT
+# -------------------------
+
+@app.route("/download_report", methods=["POST"])
+def download_report():
 
     data = request.json
 
-    R = data["R"]
-    I = data["I"]
-    A = data["A"]
-    S = data["S"]
-    E = data["E"]
-    C = data["C"]
-    interest = data["interest"]
+    buffer = io.BytesIO()
+    styles = getSampleStyleSheet()
 
-    input_data = np.array([[R,I,A,S,E,C]])
+    elements = []
 
-    probs = model.predict_proba(input_data)[0]
-    careers = encoder.classes_
+    elements.append(Paragraph("AI Career Guidance Report", styles['Title']))
+    elements.append(Spacer(1,20))
 
-    result = {}
+    elements.append(Paragraph(f"Student: {data['name']}", styles['Normal']))
+    elements.append(Paragraph(f"Career: {data['career']}", styles['Normal']))
+    elements.append(Paragraph(f"Level: {data['level']}", styles['Normal']))
+    elements.append(Paragraph(f"Top Factor: {data['factor']}", styles['Normal']))
 
-    for i in range(len(careers)):
-        result[str(careers[i])] = float(round(float(probs[i])*100,2))
+    doc = SimpleDocTemplate(buffer)
+    doc.build(elements)
 
-    best_model_career = str(careers[np.argmax(probs)])
+    buffer.seek(0)
 
-    # interest logic
-    if interest == best_model_career:
-        match = "Perfect Match"
-    else:
-        match = "Interest mismatch – improvement roadmap required"
+    return send_file(
+        buffer,
+        as_attachment=True,
+        download_name="career_report.pdf",
+        mimetype="application/pdf"
+    )
 
-    # skill gap simple logic
-    gap_score = (100 - max(result.values()))/10
+#CAREER ROADMAP 
+@app.route("/career_roadmap", methods=["POST"])
+def career_roadmap():
 
-    if gap_score > 5:
-        level = "Beginner"
-    elif gap_score > 2:
-        level = "Intermediate"
-    else:
-        level = "Advanced"
+    data = request.json
+    career = data["career"]
+
+    roadmap = {
+        "Engineering": [
+            "Learn Programming (Python / C++)",
+            "Study Data Structures & Algorithms",
+            "Build Web / Software Projects",
+            "Learn Databases and System Design",
+            "Apply for internships"
+        ],
+        "Lawyer": [
+            "Study Constitutional Law",
+            "Practice Legal Writing",
+            "Participate in Moot Courts",
+            "Intern at Law Firms",
+            "Prepare for Judiciary Exams"
+        ]
+    }
 
     return jsonify({
-        "career_probabilities": result,
-        "model_recommendation": best_model_career,
-        "interest_analysis": match,
-        "skill_gap_level": level
+        "career": career,
+        "roadmap": roadmap.get(career, ["Explore career paths"])
     })
+
+
+@app.route("/career_chatbot", methods=["POST"])
+def career_chatbot():
+
+    data = request.json
+    question = data.get("question","").lower()
+
+    response = ""
+
+    if "engineer" in question or "engineering" in question:
+        response = """
+To become an Engineer you should follow this roadmap:
+
+1. Learn Programming (Python / Java)
+2. Study Data Structures and Algorithms
+3. Practice problem solving
+4. Work on real world projects
+5. Apply for internships
+6. Prepare for technical interviews
+"""
+
+    elif "data scientist" in question:
+        response = """
+Data Scientist Career Path:
+
+1. Learn Python
+2. Study Statistics and Mathematics
+3. Learn Machine Learning
+4. Work with datasets using Pandas
+5. Build ML projects
+6. Learn Deep Learning
+"""
+
+    elif "skills" in question:
+        response = """
+Important skills for career growth:
+
+• Programming (Python / Java)
+• Problem Solving
+• Communication Skills
+• Analytical Thinking
+• Team Collaboration
+"""
+
+    elif "salary" in question:
+        response = """
+Typical salary growth:
+
+Entry Level → ₹3L – ₹5L  
+Junior → ₹5L – ₹8L  
+Mid Level → ₹8L – ₹15L  
+Senior → ₹15L – ₹30L+
+"""
+
+    elif "roadmap" in question:
+        response = """
+General Career Roadmap:
+
+Year 1 → Learn Fundamentals  
+Year 2 → Build Projects  
+Year 3 → Internship + Advanced Skills  
+Year 4 → Job Preparation + Portfolio
+"""
+
+    elif "courses" in question:
+        response = """
+Recommended learning platforms:
+
+• Coursera
+• Udemy
+• edX
+• Khan Academy
+• NPTEL
+"""
+
+    else:
+        response = """
+I can help with:
+
+• Career guidance
+• Skills to learn
+• Salary growth
+• Career roadmap
+• Best courses
+
+Ask me something like:
+"What skills should I learn?"
+"""
+
+    return jsonify({
+        "answer": response
+    })
+
+#SKILL PROGRESS TRACKING
+@app.route("/skill_progress", methods=["GET"])
+def skill_progress():
+
+    progress = {
+        "months": ["Jan", "Feb", "Mar", "Apr", "May"],
+        "python": [3, 5, 6, 7, 8],
+        "maths": [4, 5, 6, 7, 7],
+        "communication": [5, 6, 7, 7, 8]
+    }
+
+    return jsonify(progress)
+
+#SAVE RESULT TO DB
+@app.route("/save_result", methods=["POST"])
+def save_result():
+
+    data = request.json
+
+    user_id = data.get("user_id")
+    career = data.get("career")
+    level = data.get("level")
+
+    conn = sqlite3.connect("career.db")
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS results(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            career TEXT,
+            level TEXT
+        )
+    """)
+
+    cursor.execute(
+        "INSERT INTO results(user_id, career, level) VALUES(?,?,?)",
+        (user_id, career, level)
+    )
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        "message": "Result saved successfully"
+    })
+
+# -------------------------
+# RUN SERVER
+# -------------------------
 
 if __name__ == "__main__":
     print("Career AI Backend Running")

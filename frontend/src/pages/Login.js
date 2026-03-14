@@ -2,31 +2,37 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import API from "../services/api";
 
-function Register(){
+function Login(){
 
   const navigate = useNavigate();
 
-  const [name,setName] = useState("");
   const [email,setEmail] = useState("");
   const [password,setPassword] = useState("");
 
-  const handleRegister = async () => {
+  const handleLogin = async () => {
 
     try{
 
-      await API.post("/register",{
-        name,
+      const res = await API.post("/login",{
         email,
         password
       });
 
-      alert("Registration Successful");
+      if(res.data.user_id){
 
-      navigate("/");
+        localStorage.setItem("user_id",res.data.user_id);
+
+        navigate("/assessment");
+
+      }else{
+
+        alert("Invalid Login");
+
+      }
 
     }catch(error){
 
-      alert("Registration Failed");
+      alert("Server Error");
 
     }
 
@@ -36,12 +42,7 @@ function Register(){
 
     <div className="card">
 
-      <h2>Create Account</h2>
-
-      <input
-        placeholder="Name"
-        onChange={(e)=>setName(e.target.value)}
-      />
+      <h2>Login</h2>
 
       <input
         placeholder="Email"
@@ -54,7 +55,7 @@ function Register(){
         onChange={(e)=>setPassword(e.target.value)}
       />
 
-      <button onClick={handleRegister}>Register</button>
+      <button onClick={handleLogin}>Login</button>
 
     </div>
 
@@ -62,4 +63,4 @@ function Register(){
 
 }
 
-export default Register;
+export default Login;

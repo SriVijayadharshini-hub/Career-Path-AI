@@ -2,7 +2,7 @@ import { useLocation } from "react-router-dom";
 import { useEffect, useState } from "react";
 import API from "../services/api";
 
-import { Bar, Radar } from "react-chartjs-2";
+import { Bar, Radar, Line } from "react-chartjs-2";
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -38,6 +38,57 @@ function Results() {
   const [courses, setCourses] = useState([]);
   const [salary, setSalary] = useState(null);
   const [explanation, setExplanation] = useState(null);
+  const [roadmap, setRoadmap] = useState([]);
+  const [progress, setProgress] = useState(null);
+
+  const [question, setQuestion] = useState("");
+  const [chatResponse, setChatResponse] = useState("");
+
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  const askChatbot = async () => {
+    try {
+      const res = await API.post("/career_chatbot", {
+        question: question
+      });
+
+      setChatResponse(res.data.answer);
+
+    } catch (err) {
+      console.error("Chatbot error:", err);
+    }
+  };
+
+  const downloadReport = async () => {
+
+    try {
+
+      const res = await API.post(
+        "/download_report",
+        {
+          name: "Student",
+          career: prediction?.model_recommendation,
+          level: skillGap?.recommended_level,
+          factor: explanation?.top_influencing_factor
+        },
+        { responseType: "blob" }
+      );
+
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const link = document.createElement("a");
+
+      link.href = url;
+      link.download = "career_report.pdf";
+
+      document.body.appendChild(link);
+      link.click();
+
+    } catch (err) {
+      console.error("Report Download Error:", err);
+    }
+
+  };
 
   useEffect(() => {
 
@@ -47,8 +98,9 @@ function Results() {
 
       try {
 
-        // AI Career Prediction
-        const pred = await API.post("/predict_career", {
+        setLoading(true);
+
+        const predRes = await API.post("/predict_career", {
           R: scores.R,
           I: scores.I,
           A: scores.A,
@@ -58,36 +110,34 @@ function Results() {
           interest: "Engineering"
         });
 
-        setPrediction(pred.data);
+        const pred = predRes.data;
+        setPrediction(pred);
 
-        // Skill Gap
-        const skill = await API.post("/skill_gap", {
-          career: pred.data.model_recommendation,
+        const skillRes = await API.post("/skill_gap", {
+          career: pred.model_recommendation,
           python: 6,
           maths: 6,
           communication: 6
         });
 
-        setSkillGap(skill.data);
+        const skill = skillRes.data;
+        setSkillGap(skill);
 
-        // Course Recommendation
-        const course = await API.post("/recommend_courses", {
-          career: pred.data.model_recommendation,
-          level: skill.data.recommended_level
+        const courseRes = await API.post("/recommend_courses", {
+          career: pred.model_recommendation,
+          level: skill.recommended_level
         });
 
-        setCourses(course.data.recommended_courses);
+        setCourses(courseRes.data?.recommended_courses || []);
 
-        // Career Simulation
-        const sim = await API.post("/career_simulation", {
-          career: pred.data.model_recommendation,
-          level: skill.data.recommended_level
+        const simRes = await API.post("/career_simulation", {
+          career: pred.model_recommendation,
+          level: skill.recommended_level
         });
 
-        setSalary(sim.data);
+        setSalary(simRes.data);
 
-        // Explainable AI
-        const explain = await API.post("/explain_prediction", {
+        const explainRes = await API.post("/explain_prediction", {
           R: scores.R,
           I: scores.I,
           A: scores.A,
@@ -96,11 +146,31 @@ function Results() {
           C: scores.C
         });
 
-        setExplanation(explain.data);
+        setExplanation(explainRes.data);
 
-      } catch (error) {
+        const roadmapRes = await API.post("/career_roadmap", {
+          career: pred.model_recommendation
+        });
 
-        console.error("API Error:", error);
+        setRoadmap(roadmapRes.data?.roadmap || []);
+
+        const progressRes = await API.get("/skill_progress");
+
+        setProgress(progressRes.data);
+
+        await API.post("/save_result", {
+          user_id: 1,
+          career: pred.model_recommendation,
+          level: skill.recommended_level
+        });
+
+        setLoading(false);
+
+      } catch (err) {
+
+        console.error("API Error:", err);
+        setError("Failed to load AI analysis.");
+        setLoading(false);
 
       }
 
@@ -110,48 +180,53 @@ function Results() {
 
   }, [scores]);
 
-  if (!scores) {
-    return <h2>No assessment data available</h2>;
-  }
+  if (!scores) return <h2>No assessment data available</h2>;
+  if (loading) return <h2>Loading AI Career Analysis...</h2>;
+  if (error) return <h2>{error}</h2>;
 
-  // Career Probability Chart
   const chartData = prediction ? {
-    labels: Object.keys(prediction.probabilities),
+    labels: Object.keys(prediction.probabilities || {}),
     datasets: [
       {
         label: "Career Probability %",
-        data: Object.values(prediction.probabilities)
+        data: Object.values(prediction.probabilities || [])
       }
     ]
   } : null;
 
-  // RIASEC Radar Chart
   const radarData = {
-    labels: [
-      "Realistic",
-      "Investigative",
-      "Artistic",
-      "Social",
-      "Enterprising",
-      "Conventional"
-    ],
+    labels: ["Realistic","Investigative","Artistic","Social","Enterprising","Conventional"],
     datasets: [
       {
         label: "RIASEC Personality Profile",
-        data: [
-          scores.R,
-          scores.I,
-          scores.A,
-          scores.S,
-          scores.E,
-          scores.C
-        ]
+        data: [scores.R,scores.I,scores.A,scores.S,scores.E,scores.C]
       }
     ]
   };
 
+  const salaryChart = salary ? {
+    labels: salary.growth_stages || [],
+    datasets: [
+      {
+        label: "Salary Projection (₹)",
+        data: salary.salary_projection || []
+      }
+    ]
+  } : null;
+
+  const progressChart = progress ? {
+    labels: progress.months,
+    datasets: [
+      {
+        label: "Python Skill Progress",
+        data: progress.python
+      }
+    ]
+  } : null;
+
   return (
-    <div style={{ padding: "30px" }}>
+
+    <div className="dashboard">
 
       <h1>AI Career Guidance Dashboard</h1>
 
@@ -167,21 +242,18 @@ function Results() {
       </ul>
 
       <h2>RIASEC Personality Radar Chart</h2>
-
-      <div style={{ width: "500px" }}>
+      <div className="chart-box">
         <Radar data={radarData} />
       </div>
 
       {prediction && (
         <>
           <h2>AI Career Recommendation</h2>
-
           <p><b>Recommended Career:</b> {prediction.model_recommendation}</p>
           <p>{prediction.interest_analysis}</p>
 
           <h2>Career Probability Chart</h2>
-
-          <div style={{ width: "500px" }}>
+          <div className="chart-box">
             <Bar data={chartData} />
           </div>
         </>
@@ -190,17 +262,13 @@ function Results() {
       {explanation && (
         <>
           <h2>Explainable AI Insight</h2>
-
-          <p>
-            <b>Top Influencing Personality Factor:</b> {explanation.top_influencing_factor}
-          </p>
+          <p><b>Top Influencing Personality Factor:</b> {explanation.top_influencing_factor}</p>
         </>
       )}
 
       {skillGap && (
         <>
           <h2>Skill Gap Analysis</h2>
-
           <p>Gap Score: {skillGap.gap_score}</p>
           <p>Recommended Level: {skillGap.recommended_level}</p>
         </>
@@ -209,30 +277,80 @@ function Results() {
       {courses.length > 0 && (
         <>
           <h2>Recommended Courses</h2>
-
           <ul>
-            {courses.map((c, i) => (
-              <li key={i}>{c}</li>
-            ))}
-          </ul>
-        </>
-      )}
-
-      {salary && (
-        <>
-          <h2>Future Salary Projection</h2>
-
-          <ul>
-            {salary.growth_stages.map((stage, i) => (
+            {courses.map((course, i) => (
               <li key={i}>
-                {stage} → ₹{salary.salary_projection[i]}
+                {course.name ? (
+                  <>
+                    {course.name} - {course.platform}
+                    <br/>
+                    <a href={course.link} target="_blank" rel="noreferrer">
+                      Start Course
+                    </a>
+                  </>
+                ) : course}
               </li>
             ))}
           </ul>
         </>
       )}
 
+      {roadmap.length > 0 && (
+        <>
+          <h2>Career Roadmap</h2>
+          <ol>
+            {roadmap.map((step, i) => (
+              <li key={i}>{step}</li>
+            ))}
+          </ol>
+        </>
+      )}
+
+      {salary && (
+        <>
+          <h2>Future Career Salary Growth</h2>
+          <div className="chart-box">
+            <Line data={salaryChart} />
+          </div>
+        </>
+      )}
+
+      {progress && (
+        <>
+          <h2>Skill Progress Chart</h2>
+          <div className="chart-box">
+            <Line data={progressChart} />
+          </div>
+        </>
+      )}
+
+      <h2>AI Career Chatbot</h2>
+
+      <input
+        type="text"
+        placeholder="Ask about your career..."
+        value={question}
+        onChange={(e) => setQuestion(e.target.value)}
+      />
+
+      <button onClick={askChatbot}>
+        Ask AI
+      </button>
+
+      {chatResponse && (
+        <p>
+          <b>AI Answer:</b> {chatResponse}
+        </p>
+      )}
+
+      <br/><br/>
+
+      <button onClick={downloadReport}>
+        Download AI Career Report
+      </button>
+
     </div>
+
   );
 }
 
